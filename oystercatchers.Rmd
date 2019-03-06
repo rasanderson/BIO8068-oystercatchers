@@ -1,0 +1,157 @@
+---
+title: "BIO8068 Data visualisation in ecology"
+subtitle: Further use of ggplot and model interpretation
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Introduction
+
+Often you will receive complex data-sets, but initial analyses can be confusing, and it may require careful interpretation of model outputs to understand what is the problem. This practical will use a real ecological dataset to illustrate some of the problems. You can learn about fine-tuning and polishing ggplot2 graphics in numerous books and websites, and I particularly recommend The R Cookbook <http://www.cookbook-r.com/Graphs/> which contains the same text as the associated book. The book R for Data Science by Hadley Wickham (author of ggplot2 etc.) and its website <https://r4ds.had.co.nz/index.html> are also excellent sources.  The aims of this practical are to:
+* show you how to explore ecological data, with common mistakes
+* use diagnostic plots to gain better insights
+
+## 2. The data
+The data are from a 3-year study into American oystercatchers, _Haematopus palliatus_, inhabitating coastal areas near Buenos Aires, Argentina. Oystercatchers establish nesting territories along the shoreline, of about 50 to 500 metres in size, and when chicks are being reared these are defended by adults, with the parents chasing away other oystercatchers. We will look at a sub-set of the data, for two months, December and January, when the birds are breeding (southern hemispher summer).
+
+Oystercatchers use two techniques to break open clam shells, either a hammering technique or stabbing method. One question in the study was whether the shells eaten by hammerers are larger than those eaten by stabbers. Time of year, and location may also affect what is happening, so we could be looking at a complex 3-way interaction between feeding type (stabber/hammerer), feeding plot and month.
+
+## 3. Import the data and initial inspection
+Download the file "OystercatcherData.txt" from Blackboard, create a new project for your oystercatcher data, and within the project create a subfolder called "data" in which to store the downloaded data file. Create an R script, and import the oystercatcher data into a tibble OC. As this is tab-separated text format (readable in Excel on Windows), we'll use read_tsv rather than read_csv:
+
+```{r import data}
+library(readr)
+OC <- read_tsv("data/OystercatcherData.txt")
+summary(OC)
+
+# Set the Month, FeedingType and FeedingPlot as factors
+OC$Month <- as.factor(OC$Month)
+OC$FeedingType <- as.factor(OC$FeedingType)
+OC$FeedingPlot <- as.factor(OC$FeedingPlot)
+summary(OC)
+```
+
+### Initial boxplots
+A good initial starting point is to produce some boxplots to explore the data. Using ggplot2, see if you can produce some boxplots similar to this, for each of the three factors. Store the plots in three ggplot objects p1, p2 and p3.
+
+```{r boxplots, echo=FALSE}
+library(ggplot2)
+p1 <- ggplot() +
+  geom_boxplot(data=OC, aes(x = FeedingType, y = ShellLength)) +
+  xlab("Feeding type") +
+  ylab("Shell length") +
+  theme_classic()
+p1
+```
+
+It would be useful to display all three ggplot graphs in one plot, rather than three separate ones.  Go to the R Graphics Cookbook website <http://www.cookbook-r.com/Graphs/Multiple_graphs_on_one_page_(ggplot2)/> or search on Google for "R Graphics Cookbook multiplot". You will see the page has a simple(?!) R function called "multiplot", so copy this into your R script and run it to make it available. Note that multiplot uses the "grid" package so check that it is installed. Then all you need is:
+
+```{r boxplots p2 p3 and multiplot, include=FALSE}
+p2 <- ggplot() +
+  geom_boxplot(data=OC, aes(x = Month, y = ShellLength)) +
+  xlab("Month") +
+  ylab("Shell length") +
+  theme_classic()
+p3 <- ggplot() +
+  geom_boxplot(data=OC, aes(x = FeedingPlot, y = ShellLength)) +
+  xlab("Feeding plot") +
+  ylab("Shell length") +
+  theme_classic()
+
+# Multiple plot function
+#
+# ggplot objects can be passed in ..., or to plotlist (as a list of ggplot objects)
+# - cols:   Number of columns in layout
+# - layout: A matrix specifying the layout. If present, 'cols' is ignored.
+#
+# If the layout is something like matrix(c(1,2,3,3), nrow=2, byrow=TRUE),
+# then plot 1 will go in the upper left, 2 will go in the upper right, and
+# 3 will go all the way across the bottom.
+#
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+```
+
+```{r display multiplot}
+multiplot(p1, p2, p3, cols=2)
+
+```
+
+Finally, using the `table` function provides an easy way of checking the number of oberservations per month, per feeding plot, and per feeding type. This is useful to check that there seem to be a reasonable number of observations to proceed with the analysis.
+
+```{r initial summary tables}
+table(OC$Month)
+table(OC$FeedingPlot)
+table(OC$FeedingType)
+```
+
+*Note*: as we will see later, we have actually made a major error here. There is in reality a problem with the data, and so really we should not have stopped exploring it now before going ahead with our analyses. We will come back to this issue...
+
+## 4. Applying a linear regression model
+We're going to do a simple linear model with the `lm` command, looking at all interactions. With so many different predictors in the model it is sometimes useful to use the `drop1` command to check that the higher-level 3-way interaction terms are significant:
+
+```{r lm model and drop1}
+M1 <- lm(ShellLength ~ FeedingType * FeedingPlot * Month,
+         data = OC)
+print(summary(M1), digits = 2)
+drop1(M1, test = "F")
+```
+
+So, we can conclude that the 3-way term of Feeding Type x Feeding Plot x Month is significant. Of course, being good ecological data scientists you know by now that it is not sufficient just to look at the tabular output of a linear model, but also want the graphical output. Issue the command `plot(M1)` to check the overall model diagnostics; what is your interpretation of the four standard plots, especially the first (Residuals vs Fitted) and second (Normal Q-Q plot)??
+
+Here you have three categorical predictors, so sometimes it is useful to look at the residuals for each predictor separately. Here is the code for the Feeding Type:
+
+```{r feeding type resids}
+E1 <- rstandard(M1) # Extract standardised residuals
+p1r <- ggplot(data=OC, aes(x=FeedingType, y=E1)) +
+  geom_boxplot() +
+  geom_hline(aes(yintercept=0), linetype="dashed") +
+  theme_classic()
+p1r
+```
+
+Modify the code for Feeding plot and month - do the residuals seem roughly similar for each level of each factor, and centred around zero?  Use multiplot to but all three plots side-by-side.
+
+## 5. Model interpretation
+Given that there seem to be no major problems with our linear model, we can now go ahead and interpret what is going on in more detail. Remember that the value labelled 
+
+
