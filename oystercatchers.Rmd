@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ## 1. Introduction
 
 Often you will receive complex data-sets, but initial analyses can be confusing, and it may require careful interpretation of model outputs to understand what is the problem. This practical will use a real ecological dataset to illustrate some of the problems. You can learn about fine-tuning and polishing ggplot2 graphics in numerous books and websites, and I particularly recommend The R Cookbook <http://www.cookbook-r.com/Graphs/> which contains the same text as the associated book. The book R for Data Science by Hadley Wickham (author of ggplot2 etc.) and its website <https://r4ds.had.co.nz/index.html> are also excellent sources.  The aims of this practical are to:
+
 * show you how to explore ecological data, with common mistakes
 * use diagnostic plots to gain better insights
 
@@ -152,6 +153,101 @@ p1r
 Modify the code for Feeding plot and month - do the residuals seem roughly similar for each level of each factor, and centred around zero?  Use multiplot to but all three plots side-by-side.
 
 ## 5. Model interpretation
-Given that there seem to be no major problems with our linear model, we can now go ahead and interpret what is going on in more detail. Remember that the value labelled 
+Given that there seem to be no major problems with our linear model, we can now go ahead and interpret what is going on in more detail. Remember that the value labelled `(Intercept)` is the overall mean value for the "base" level of a factor, which by default is alphabetical. So here with three factors, the base level is for "hammerers", sample plot "A", in month "December"
 
+$$ShellLength_i = 2.208$$
+To calculate hammerers in Plot B in December:
 
+$$ShellLength_i = 2.208 + 0.124 = 2.332$$
+and for stabbers in Plot B in January:
+
+$$ShellLength_i = 2.208 + 0.632 + 0.124 - 0.076 - 0.936 - 0.987 - 0.234 + 1.308$$
+*Question* : How many combinations are there in your data given the numbers of levels in each of your factors? Obviously, having to write out all those equations manually will be slow and tedious. Fortunately, we can use the `predict` function, in combination with the `expand.grid` function. The latter creates every combination of all the factor levels:
+
+```{r expand.grid}
+MyData <- expand.grid(
+                      FeedingType = levels(OC$FeedingType),
+                      FeedingPlot = levels(OC$FeedingPlot),
+                      Month       = levels(OC$Month))
+MyData
+```
+You can see that `MyData` simply contains all the level combinations of every factor.  Now push this through the `predict` function; for completeness we will also calculate the standard errors and upper and lower 95% confidence intervals, and add them to MyData:
+
+```{r predict baseline}
+#Do the actual prediction
+P1 <- predict(M1, newdata = MyData, se = TRUE)                      
+
+#Add the predicted values
+MyData$Fit    <- P1$fit
+MyData$SE     <- P1$se.fit
+MyData$se.low <- P1$fit - 1.96 * P1$se.fit
+MyData$se.up  <- P1$fit + 1.96 * P1$se.fit
+print(MyData, digits = 3)
+```
+
+It would be useful to be able to visualise these data in `ggplot` to compare them more readily. We'll create a new variable combining FeedingType, FeedingPlot and Month into a single text object, then pass the result into `ggplot` :
+
+```{r coefficients ggplot}
+library(magrittr) # pipe operator %>%
+library(dplyr)    # mutate function
+MyData %>%
+  mutate(treatment = paste(FeedingType, FeedingPlot, Month)) %>% 
+  ggplot(aes(x = treatment, y=Fit)) +
+    geom_pointrange(aes(ymin=se.low, ymax=se.up)) +
+    labs(x="", y="Fitted Values") +
+    coord_flip() +
+    theme_classic()
+```
+Note the use of coord_flip to swap the axes for nicer presentation, the setting of the x-axis label (now the y-axis after flipping) to be blank. *Question* : Try reproducing the plot, but with the treatment levels on the y-axis ranked according to the size of the fitted values.
+
+## 5. Trouble ahead
+So you have now completed your analysis, know which are the important variables, checked that the model assumptions are correct standard residual plots, and so go ahead and write up an exciting scientific paper. _Not so fast!!_ Does anything worry you about the last plot that you have created, and if so what? Something is a little suspect, but we need to investigate futher to find out exactly what is wrong.  Let's replot our fitted values with 95% CI, but in a slightly different format, with observed values superimposed. As there are quite a lot of observations we will "jitter" them to make them easier to see. The next section of code is quite complicated, and therefore check each intermediate `ggplot` graph as you go along (simply enter `p` in the Console window). Please ask if you are unsure what any of the options are doing.
+
+```{r fitted plus observations}
+# Set out basic structure of plot
+p <- ggplot()
+p <- p + xlab("Feeding type") + ylab("Shell length")
+p <- p + theme(text = element_text(size=15)) + theme_bw()
+
+# Add points for the fitted values
+p <- p + geom_point(data = MyData, 
+                    aes(x = FeedingType, 
+                        y = MyData$Fit, 
+                        size = 6),    
+                    col = ("black"))
+
+# Add error bars
+p <- p + geom_errorbar(data = MyData,
+                       aes(x = FeedingType, 
+                           ymax = se.up, 
+                           ymin = se.low), 
+                       width=0.2)
+
+# Add observations, with random jitter. See what happens when you alter jitter width
+p <- p + geom_point(data = OC, 
+                    aes(x = FeedingType, y = ShellLength),
+                    position = position_jitter(width = .02), #
+                    color = grey(0.3),
+                    size = 2)
+
+# Change to a grid layout for each combination of factor levels
+p <- p + facet_grid(Month ~ FeedingPlot,  # defines vertical ~ horizontal
+                    scales = "fixed")     # same scaling in every plot
+
+# Get rid of the legend which isn't doing anything
+p <- p + theme(legend.position="none") 
+
+p
+
+```
+Now, studying the fitted values and observations, as well as what you saw in the previous horizontal plot of fitted values and 95% CI, it is obvious that there is something very odd about there stabbers in December at Site A: where are the observations??! In fact there are observations, but they are so close in value to the fitted value, that you can't actually see them!
+
+So what on earth is going on? Recall our initial data exploration did not identify any problems, but I said at the time that we should have explored the data further. We produced some tables, but not the following one (try to adapt your original R code to produce this table):
+
+```{r three-way table, echo=FALSE}
+table(OC$Month, OC$FeedingPlot, OC$FeedingType)
+```
+The numbers of stabbers is very low at several site-month combinations, with only 2 in December at Site A. Ironically, when you looked at the plots of overall model performance the "Cook's distance" plot looked fine, because it could not detect any excess leverage on those observations because there were only a couple in the first place.
+
+# 6. Conclusions: Re-run a better model
+Hopefully this exercise has demonstrated how easy it is to be misled by model output, and how good data exploration and visualisation are essential. What should be done in this case? I'm always suspcious of 3-way interactions, as they are usually a nightmare to interpret biologically even when the data are solid. Try re-running your linear model, but omit the 3-way interaction, and see if your results stand up to scrutiny better. You can create similar plots of the fitted values to check that everything is working better without the 3-way interactions.
