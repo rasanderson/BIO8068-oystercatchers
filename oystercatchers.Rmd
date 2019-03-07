@@ -198,6 +198,7 @@ MyData %>%
     coord_flip() +
     theme_classic()
 ```
+
 Note the use of coord_flip to swap the axes for nicer presentation, the setting of the x-axis label (now the y-axis after flipping) to be blank. *Question* : Try reproducing the plot, but with the treatment levels on the y-axis ranked according to the size of the fitted values.
 
 ## 5. Trouble ahead
@@ -240,6 +241,7 @@ p <- p + theme(legend.position="none")
 p
 
 ```
+
 Now, studying the fitted values and observations, as well as what you saw in the previous horizontal plot of fitted values and 95% CI, it is obvious that there is something very odd about there stabbers in December at Site A: where are the observations??! In fact there are observations, but they are so close in value to the fitted value, that you can't actually see them!
 
 So what on earth is going on? Recall our initial data exploration did not identify any problems, but I said at the time that we should have explored the data further. We produced some tables, but not the following one (try to adapt your original R code to produce this table):
